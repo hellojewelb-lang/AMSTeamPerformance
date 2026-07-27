@@ -1774,10 +1774,40 @@ function renderDaily(dk){
     if(csEmails>0||csHours>0){
       csBullets.push(`<strong>${csEmails||'—'}</strong> emails handled across <strong>${csHours?csHours.toFixed(1):'—'}</strong> hours.`);
       if(csAuditCount>0) csBullets.push(`Quality audits covered <strong>${csAuditCount}</strong> emails${csAuditRate?' at an average score of <strong>'+csAuditRate+'%</strong>':''}.`);
-      if(_csChRows.length>0&&_csActRows.length>0) csBullets.push(`<strong>${_csChRows.length}</strong> situation${_csChRows.length!==1?'s':''} flagged, <strong>${_csActRows.length}</strong> response action${_csActRows.length!==1?'s':''} documented.`);
-      else if(_csChRows.length>0) csBullets.push(`<strong>${_csChRows.length}</strong> situation${_csChRows.length!==1?'s':''} flagged today requiring attention.`);
+      // Replaced 2026-07-24: was just "2 situations flagged, 3 response actions documented"
+      // with no detail. Now names who flagged what and who did what about it, mirroring the
+      // email-drivers fix above (r[1]=rep name, r[2]=challenge text, r[3]=action text).
+      if(_csChRows.length>0&&_csActRows.length>0){
+        const _chList=_csChRows.map(r=>`<strong>${esc((r[1]||'').trim())}</strong>: ${esc((r[2]||'').trim())}`).join(' · ');
+        const _acList=_csActRows.map(r=>`<strong>${esc((r[1]||'').trim())}</strong>: ${esc((r[3]||'').trim())}`).join(' · ');
+        csBullets.push(`<strong>${_csChRows.length}</strong> situation${_csChRows.length!==1?'s':''} flagged — ${_chList}.`);
+        csBullets.push(`<strong>${_csActRows.length}</strong> response action${_csActRows.length!==1?'s':''} documented — ${_acList}.`);
+      }
+      else if(_csChRows.length>0){
+        const _chList=_csChRows.map(r=>`<strong>${esc((r[1]||'').trim())}</strong>: ${esc((r[2]||'').trim())}`).join(' · ');
+        csBullets.push(`<strong>${_csChRows.length}</strong> situation${_csChRows.length!==1?'s':''} flagged today — ${_chList}.`);
+      }
       else csBullets.push('No challenges reported — an operationally smooth day.');
-      if(_csEdRows.length>0){const edSet=[...new Set(_csEdRows.map(r=>(r[5]||'').trim()))];csBullets.push(`Inbound volume driven by <strong>${edSet.length}</strong> identifiable email theme${edSet.length!==1?'s':''}.`);}
+      // Replaced 2026-07-24: was just a count of distinct entries ("driven by 2 identifiable
+      // email themes"); now names the actual top 3 drivers, parsed/ranked the same way as the
+      // "Top Email Drivers" card further down (split each rep's field on newlines, strip bullet
+      // markers, drop "off"/"n/a"-type lines, count occurrences across all reps).
+      if(_csEdRows.length>0){
+        const _edOffKw=/^(off|day\s*off|on\s*leave|holiday|absent|n\/a|none|na|-)$/i;
+        const _edCounts={};
+        _csEdRows.forEach(r=>{
+          const lines=(r[5]||'').split(/[\n\r]+/).map(l=>l.replace(/^[-•\*\s\d\.]+/,'').trim()).filter(Boolean);
+          lines.forEach(d=>{
+            if(_edOffKw.test(d.trim())) return;
+            const key=d.toLowerCase().replace(/[^a-z0-9\/\s]/g,'').trim();
+            if(!key||key.length<2) return;
+            if(!_edCounts[key]) _edCounts[key]={label:d,cnt:0};
+            _edCounts[key].cnt++;
+          });
+        });
+        const _edTop=Object.values(_edCounts).sort((a,b)=>b.cnt-a.cnt).slice(0,3);
+        if(_edTop.length) csBullets.push(`Top email driver${_edTop.length!==1?'s':''}: ${_edTop.map(d=>`<strong>${esc(d.label)}</strong>${d.cnt>1?` (${d.cnt}×)`:''}`).join(', ')}.`);
+      }
       if(_csNtRows.length>0) csBullets.push(`<strong>${_csNtRows.length}</strong> note${_csNtRows.length!==1?'s':''} flagged for escalation review.`);
     }
     const csAdminHoursToday=csAdminHoursForDate(dk);
@@ -1841,7 +1871,12 @@ function renderDaily(dk){
     const _topRefReasons=topRefundReasons(dk,3);
     if(_topRefReasons.top.length) finBullets.push(formatTopReasonsBullet(_topRefReasons.top));
     if(!finBullets.length) finBullets.push('No refund activity today.');
-    const finChips=[statChip(totalRef>0?fmtEur(totalRef):'—','Total Refunds','#dc2626')];
+    // Total Refunds on its own row on top, with Manual/PayPal side-by-side below it
+    // (2026-07-24, revised from a single flat row of 3 chips per feedback).
+    const finChips=[`<div style="width:100%;display:flex;flex-direction:column;gap:.4rem">
+      <div style="display:flex;gap:.4rem">${statChip(totalRef>0?fmtEur(totalRef):'—','Total Refunds','#dc2626')}</div>
+      ${(manualRef>0||ppRefAmt>0)?`<div style="display:flex;gap:.4rem">${manualRef>0?statChip(fmtEur(manualRef),'Manual','#1e293b'):''}${ppRefAmt>0?statChip(fmtEur(ppRefAmt),'PayPal','#1e293b'):''}</div>`:''}
+    </div>`];
 
     const _hasAny=csBullets.length||ppBullets.length||scBullets.length;
     if(_hasAny){
