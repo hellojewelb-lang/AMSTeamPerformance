@@ -455,10 +455,23 @@ const SHEETS = {
   // tq selects only needed columns to avoid JSONP row truncation caused by long product names in col E
   // After select: r[0]=date(F), r[1]=reason(H), r[2]=amount(K)
   REFUNDS:  { id:'1lg1KQ0rG0yHtWpsurwOZyqTLf3d9Pdfmvsb3QzYXEls', sheet:'Daily Refunds',           tq:'select F,H,K' },
-  PP_REF:   { id:'1lg1KQ0rG0yHtWpsurwOZyqTLf3d9Pdfmvsb3QzYXEls', gid:'172470450', sheet:'PayPal Disputes Refunds', tq:'select F,H,K' },
-  // Cancellation Refunds tab — confirmed columns: A=Store, B=row count per day, F=Date, H=Reason1, I=Reason2/Amount
-  // After select F,H,I: r[0]=date(F), r[1]=reason1(H), r[2]=reason2orAmount(I)
-  CANCEL:   { id:'1lg1KQ0rG0yHtWpsurwOZyqTLf3d9Pdfmvsb3QzYXEls', sheet:'Cancellation Refunds',    tq:'select F,H,I' },
+  // FIXED 2026-07-28 (root cause of the "€509.62 PayPal refund on a day Maria refunded nothing"
+  // report): gid 172470450 was NEVER the "PayPal Disputes Refunds" tab — it's the real gid of
+  // "Cancellation Refunds" (see CANCEL below, which now uses this same gid explicitly instead of
+  // a name-based lookup). Confirmed with the user directly from their browser's address bar that
+  // the real PayPal Disputes Refunds tab is gid 715837835 (columns: F=Last Action, H=Reason,
+  // I=Agreed Refund %, J=Customer Paid, K=Refund Amount — all rows "Handled By" Maria). The
+  // dashboard had been silently reading Cancellation Refunds data under the PP_REF label this
+  // entire time; the real PayPal Disputes Refunds tab was never actually loaded until now.
+  PP_REF:   { id:'1lg1KQ0rG0yHtWpsurwOZyqTLf3d9Pdfmvsb3QzYXEls', gid:'715837835', sheet:'PayPal Disputes Refunds', tq:'select F,H,K' },
+  // FIXED 2026-07-28: added explicit gid (see PP_REF note above — this is the gid PP_REF was
+  // mistakenly using). Also added Col L (Refund Amount) as r[3]: cancelForDate() was computing
+  // "value" from r[2], which is Reason 2 (free text like "Changed Mind"), not a dollar amount —
+  // parseCurrency() on that text silently returned 0, so cancellation dollar values have never
+  // actually displayed anywhere on the dashboard. r[2] (Reason 2) is still used as-is for the
+  // "Top Cancel Reasons" list, which was already correct.
+  // After select F,H,I,L: r[0]=date(F), r[1]=reason1(H), r[2]=reason2(I), r[3]=refundAmount(L)
+  CANCEL:   { id:'1lg1KQ0rG0yHtWpsurwOZyqTLf3d9Pdfmvsb3QzYXEls', gid:'172470450', sheet:'Cancellation Refunds', tq:'select F,H,I,L' },
   // PayPal Disputes Management — authoritative win/loss log
   // select A,B,I,J,K,L,M → r[0]=store(A), r[1]=dateLodged(B), r[2]=dateResolved(I), r[3]=disputeType(J), r[4]=reason(K), r[5]=action(L), r[6]=status(M)
   PP_DISPUTES: { id:'1fbg_dwSg51irhjgd_Mtb75rv69tRhc6NfiRf2Zs1F88', gid:'2024119866', tq:'select A,B,I,J,K,L,M' },
@@ -672,7 +685,7 @@ function showDebug(){
     ${renderSheet('PayPal EOD (date=colA/0, challenges=colB/1, order=colC/2, customer=colD/3, actions=colE/4, NewInq=colF/5, NewClaim=colG/6, Esc=colH/7, TotalNew=colI/8, ClsdInqWon=colJ/9, ClsdClmWon=colK/10, ClsdInqLost=colL/11, ClsdClmLost=colM/12, TotalClosed=colN/13, Remarks=colO/14, Esc=colP/15)',[],DB.pp,0,8,dk)}
     ${renderSheet('Daily Refunds (date=col0, reason=col1, amount=col2)',DB._refH||[],DB.refunds,0,2,dk)}
     ${renderSheet('PayPal Dispute Refunds (date=col0, reason=col1, amount=col2)',DB._ppRefH||[],DB.ppRef,0,2,dk)}
-    ${renderSheet('Cancellation Refunds (date=col0/F, reason1=col1/H, reason2orAmt=col2/I)',DB._cancelH||[],DB.cancel,0,2,dk)}
+    ${renderSheet('Cancellation Refunds (date=col0/F, reason1=col1/H, reason2=col2/I, refundAmount=col3/L)',DB._cancelH||[],DB.cancel,0,2,dk)}
     <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;margin-bottom:1rem">
       <div style="font-weight:700;margin-bottom:.5rem;font-size:.9rem">👤 SCORE Sheet (gid=1367283155 — Maria source) — DB.score</div>
       <div style="font-size:.75rem;color:#64748b;margin-bottom:.5rem">${DB.score.length} rows loaded · Looking for name containing "maria" on dk="${dk}"</div>
@@ -823,7 +836,9 @@ function cancelForDate(rows, dk, filterYear=2026){
     if(filterYear!=null){const yr=_extractYear(r[0]);if(yr!=null&&yr!==filterYear)return false;}
     return true;
   });
-  const value=matched.reduce((s,r)=>s+parseCurrency(r[2]),0);
+  // FIXED 2026-07-28: was parseCurrency(r[2]) — r[2] is Reason 2 (free text, e.g. "Changed
+  // Mind"), not an amount. Real refund amount is now r[3] (Col L), added to CANCEL's tq above.
+  const value=matched.reduce((s,r)=>s+parseCurrency(r[3]),0);
   return{count:matched.length, value};
 }
 
@@ -952,7 +967,7 @@ async function loadAll(){
     DB.ppRef=ok(ppRefR).filter(r=>r.some(c=>(c||'').trim()));
     DB.cancel=ok(cancelR).filter(r=>r.some(c=>(c||'').trim()));
     // Store first row for debug (now actual data, column layout: date|reason|amount)
-    DB._refH=['date(F)','reason(H)','amount(K)']; DB._ppRefH=['date(F)','reason(H)','amount(K)']; DB._cancelH=['date(F)','reason1(H)','reason2orAmt(I)'];
+    DB._refH=['date(F)','reason(H)','amount(K)']; DB._ppRefH=['date(F)','reason(H)','amount(K)']; DB._cancelH=['date(F)','reason1(H)','reason2(I)','refundAmount(L)'];
     // PP Disputes Management: select A,B,I,J,K,M → r[0]=store, r[1]=dateLodged(B), r[2]=dateResolved(I), r[3]=type(J), r[4]=reason(K), r[5]=status(M)
     // Skip header row; skip rows with no lodged date
     DB.ppDisputes=ok(ppDisputesR).slice(1).filter(r=>(r[1]||'').trim());
