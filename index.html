@@ -625,17 +625,24 @@ function csAdminHoursForDate(dk){
 
 // ─── DEBUG ───────────────────────────────────────────────────────────────────
 function showDebug(){
+  // Revised 2026-07-28: the old version sampled the first 5 rows of the WHOLE sheet (often just
+  // placeholder/header-adjacent rows, e.g. a run of "01-01-2026" entries) instead of the rows that
+  // actually match today's date key — useless for diagnosing which specific rows are being counted.
+  // Now shows the actual matched rows, each tagged with its extracted year, plus a side-by-side
+  // "matches dk, any year" vs "matches dk, 2026 only" count so cross-year pollution (the bug fixed
+  // this same day in refundForDate/topRefundReasons) is directly visible here too.
   const renderSheet=(name,header,rows,datecol,amtcol,dk)=>{
     if(!rows.length) return `<div style="color:#dc2626;margin-bottom:1rem;padding:.75rem;background:#fee2e2;border-radius:6px"><strong>${name}:</strong> ⚠️ 0 rows loaded — tab name may not match exactly</div>`;
-    const sample=rows.slice(0,5);
+    const matched=rows.filter(r=>anyDateKey(r[datecol])===dk);
+    const matched2026=matched.filter(r=>{const yr=_extractYear(r[datecol]);return yr==null||yr===2026;});
+    const sample=matched.length?matched.slice(0,15):rows.slice(0,5);
     const cols=Math.max(header.length,sample[0]?.length||0);
-    const matchCount=rows.filter(r=>anyDateKey(r[datecol])===dk).length;
     let t=`<div style="margin-bottom:1.5rem">
       <div style="font-weight:700;margin-bottom:.25rem;font-size:.9rem">${name}</div>
-      <div style="font-size:.78rem;color:#64748b;margin-bottom:.5rem">${rows.length} rows loaded · <strong style="color:${matchCount>0?'#16a34a':'#dc2626'}">${matchCount} rows match dk="${dk}"</strong></div>
+      <div style="font-size:.78rem;color:#64748b;margin-bottom:.5rem">${rows.length} rows loaded · <strong style="color:${matched.length>0?'#16a34a':'#dc2626'}">${matched.length} rows match dk="${dk}" (any year)</strong> · <strong style="color:${matched2026.length!==matched.length?'#dc2626':'#16a34a'}">${matched2026.length} of those are 2026</strong>${matched2026.length!==matched.length?` <span style="color:#dc2626">⚠ ${matched.length-matched2026.length} row(s) from a different year would have been miscounted before the year-filter fix</span>`:''}</div>
       <div style="font-size:.75rem;margin-bottom:.5rem;background:#f0fdf4;border:1px solid #bbf7d0;padding:.5rem;border-radius:4px">
-        <strong>Date column (col ${datecol}) values → parsed keys:</strong><br>
-        ${sample.map(r=>{const raw=r[datecol]||'(empty)';const key=anyDateKey(r[datecol]);return `<span style="display:inline-block;margin:.1rem .3rem .1rem 0;background:${key===dk?'#dcfce7':'#fef2f2'};border:1px solid ${key===dk?'#86efac':'#fca5a5'};padding:1px 5px;border-radius:3px">"${raw}" → <strong>${key||'null'}</strong>${key===dk?' ✓':' ✗'}</span>`;}).join('')}
+        <strong>${matched.length?'Matched rows':'No matches — showing first 5 rows of sheet instead'} — date column (col ${datecol}) values → parsed key (extracted year):</strong><br>
+        ${sample.map(r=>{const raw=r[datecol]||'(empty)';const key=anyDateKey(r[datecol]);const yr=_extractYear(r[datecol]);const off2026=yr!=null&&yr!==2026;return `<span style="display:inline-block;margin:.1rem .3rem .1rem 0;background:${off2026?'#fef2f2':'#dcfce7'};border:1px solid ${off2026?'#fca5a5':'#86efac'};padding:1px 5px;border-radius:3px">"${raw}" → <strong>${key||'null'}</strong> (${yr||'no year'})${off2026?' ⚠ NOT 2026':''}</span>`;}).join('')}
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:.7rem;font-family:monospace;overflow-x:auto;display:block">
         <tr style="background:#f1f5f9">${Array.from({length:cols},(_,i)=>`<th style="padding:3px 6px;border:1px solid #e2e8f0;text-align:left;white-space:nowrap">Col ${i}${header[i]?' ('+header[i]+')':''}</th>`).join('')}</tr>`;
