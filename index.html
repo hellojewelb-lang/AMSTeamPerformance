@@ -1901,6 +1901,32 @@ function renderDaily(dk){
   //  in the period-strip selector at the top of the page instead)
   // ════════════════════════════════════════════════════════
   html+=`
+  <!-- ── Quality Audit Strip (Jewel's daily audits) — moved above the snapshot grid 2026-07-24 ── -->
+  <div class="audit-strip">
+    <div class="audit-cell">
+      <div class="audit-lbl">Customer Service Emails Audited</div>
+      <div class="audit-num">${csAuditCount||'—'}</div>
+      <div class="audit-sub">${csAuditRate!==null?csAuditRate+'% avg rate':'—'}</div>
+      <div class="audit-sub" style="margin-top:.15rem;font-size:.6rem;color:#94a3b8">King:${adKing.count} · Patrick:${adPatrick.count} · Gabby:${adGabby.count}</div>
+    </div>
+    <div class="audit-cell">
+      <div class="audit-lbl">Supply Chain Audited</div>
+      <div class="audit-num">${adVeronica.count||'—'}</div>
+      <div class="audit-sub">${adVeronica.rate!==null?adVeronica.rate+'% audit rate':'—'}</div>
+      <div class="audit-sub" style="margin-top:.15rem;font-size:.6rem;color:#94a3b8">Veronica:${adVeronica.count||0}</div>
+    </div>
+    <div class="audit-cell">
+      <div class="audit-lbl">PayPal Cases Audited</div>
+      <div class="audit-num">${adMaria.count||'—'}</div>
+      <div class="audit-sub">${adMaria.rate!==null?adMaria.rate+'% audit rate':'—'}</div>
+      <div class="audit-sub" style="margin-top:.15rem;font-size:.6rem;color:#94a3b8">Maria:${adMaria.count||0}</div>
+      ${(()=>{const mo=new Date().getMonth()+1;return mo===6?'<div style="margin-top:.25rem;font-size:.58rem;font-weight:600;color:#d97706;font-style:italic">⚠ Exempt — June (low case volume)</div>':''})()}
+    </div>
+    <div class="audit-cell" style="border-left:2px solid #a78bfa;text-align:left;display:flex;align-items:center">
+      <div style="font-size:.7rem;color:var(--muted);font-weight:600;font-style:italic">Quality audit by Jewel</div>
+    </div>
+  </div>
+
   <div class="snapshot-grid">
 
     <!-- Customer Service -->
@@ -1988,32 +2014,6 @@ function renderDaily(dk){
       ${(manualRef>0||ppRefAmt>0)?`<div class="snap-note" style="font-size:.62rem;color:#94a3b8">Daily Refunds: ${fmtEur(manualRef)} &nbsp;·&nbsp; PayPal Refunds: ${fmtEur(ppRefAmt)}</div>`:`<div class="snap-note">No refund data yet</div>`}
     </div>
 
-  </div>
-
-  <!-- ── Quality Audit Strip (Jewel's daily audits) ── -->
-  <div class="audit-strip">
-    <div class="audit-cell">
-      <div class="audit-lbl">Customer Service Emails Audited</div>
-      <div class="audit-num">${csAuditCount||'—'}</div>
-      <div class="audit-sub">${csAuditRate!==null?csAuditRate+'% avg rate':'—'}</div>
-      <div class="audit-sub" style="margin-top:.15rem;font-size:.6rem;color:#94a3b8">King:${adKing.count} · Patrick:${adPatrick.count} · Gabby:${adGabby.count}</div>
-    </div>
-    <div class="audit-cell">
-      <div class="audit-lbl">Supply Chain Audited</div>
-      <div class="audit-num">${adVeronica.count||'—'}</div>
-      <div class="audit-sub">${adVeronica.rate!==null?adVeronica.rate+'% audit rate':'—'}</div>
-      <div class="audit-sub" style="margin-top:.15rem;font-size:.6rem;color:#94a3b8">Veronica:${adVeronica.count||0}</div>
-    </div>
-    <div class="audit-cell">
-      <div class="audit-lbl">PayPal Cases Audited</div>
-      <div class="audit-num">${adMaria.count||'—'}</div>
-      <div class="audit-sub">${adMaria.rate!==null?adMaria.rate+'% audit rate':'—'}</div>
-      <div class="audit-sub" style="margin-top:.15rem;font-size:.6rem;color:#94a3b8">Maria:${adMaria.count||0}</div>
-      ${(()=>{const mo=new Date().getMonth()+1;return mo===6?'<div style="margin-top:.25rem;font-size:.58rem;font-weight:600;color:#d97706;font-style:italic">⚠ Exempt — June (low case volume)</div>':''})()}
-    </div>
-    <div class="audit-cell" style="border-left:2px solid #a78bfa;text-align:left;display:flex;align-items:center">
-      <div style="font-size:.7rem;color:var(--muted);font-weight:600;font-style:italic">Quality audit by Jewel</div>
-    </div>
   </div>`;
 
   // ── THREE TEAM BOXES ──
