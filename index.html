@@ -789,26 +789,46 @@ function anyDateKey(str){
 }
 
 // Sum refund amounts — after TQ select, r[0]=date r[2]=amount
-function refundForDate(rows, dk){
+// filterYear guards against cross-year date-key collisions: anyDateKey() drops the year (e.g.
+// "28-07-2025" and "28-07-2026" both collapse to the key "7-28"), and the Daily Refunds / PayPal
+// Disputes Refunds sheets contain leftover rows from prior years mixed in with 2026 data (see the
+// "intentionally excluded ... contain 2025 historical data" note in loadAll()). Without this
+// guard, a same-month-day refund from 2024/2025 gets silently counted as if it happened today.
+// Mirrors the fix already applied to calcPPDisputes/ppDisputeReasonsForDate for the identical
+// underlying bug. Added 2026-07-28 after a refund total didn't match what was actually logged.
+function refundForDate(rows, dk, filterYear=2026){
   let total=0;
   rows.forEach(r=>{
     const rdk=anyDateKey(r[0])||dateKey(r[0])||scoreDateKey(r[0]);
-    if(rdk===dk) total+=parseCurrency(r[2]);
+    if(rdk!==dk) return;
+    if(filterYear!=null){const yr=_extractYear(r[0]);if(yr!=null&&yr!==filterYear)return;}
+    total+=parseCurrency(r[2]);
   });
   return total;
 }
 
-// Count cancellation rows — after TQ select, r[0]=date r[2]=orderValue
-function cancelForDate(rows, dk){
-  const matched=rows.filter(r=>(anyDateKey(r[0])||dateKey(r[0])||scoreDateKey(r[0]))===dk);
+// Count cancellation rows — after TQ select, r[0]=date r[2]=orderValue. Same cross-year guard as
+// refundForDate above (2026-07-28).
+function cancelForDate(rows, dk, filterYear=2026){
+  const matched=rows.filter(r=>{
+    const rdk=anyDateKey(r[0])||dateKey(r[0])||scoreDateKey(r[0]);
+    if(rdk!==dk) return false;
+    if(filterYear!=null){const yr=_extractYear(r[0]);if(yr!=null&&yr!==filterYear)return false;}
+    return true;
+  });
   const value=matched.reduce((s,r)=>s+parseCurrency(r[2]),0);
   return{count:matched.length, value};
 }
 
-// Top N reasons — after TQ select, r[0]=date r[1]=reason (same for both refunds and cancel)
-function topReasons(rows, dk, reasonCol, isCancel=false, n=3){
+// Top N reasons — after TQ select, r[0]=date r[1]=reason (same for both refunds and cancel).
+// Same cross-year guard as refundForDate above (2026-07-28).
+function topReasons(rows, dk, reasonCol, isCancel=false, n=3, filterYear=2026){
   const dateFn = r=>anyDateKey(r[0])||dateKey(r[0])||scoreDateKey(r[0]);
-  const matched=rows.filter(r=>dateFn(r)===dk);
+  const matched=rows.filter(r=>{
+    if(dateFn(r)!==dk) return false;
+    if(filterYear!=null){const yr=_extractYear(r[0]);if(yr!=null&&yr!==filterYear)return false;}
+    return true;
+  });
   if(!matched.length) return[];
   const freq={};
   matched.forEach(r=>{
@@ -828,7 +848,8 @@ function topReasons(rows, dk, reasonCol, isCancel=false, n=3){
 // Activity on the Daily/Weekly/Monthly tabs, sourced directly from the same sheets as
 // everything else here.
 // dkOrDates: a single "M-D" key (Daily) or an array of them (Weekly `dates` / Monthly `allDates`).
-function topRefundReasons(dkOrDates,n=3){
+// filterYear: same cross-year guard as refundForDate above (2026-07-28).
+function topRefundReasons(dkOrDates,n=3,filterYear=2026){
   const dates=Array.isArray(dkOrDates)?dkOrDates:[dkOrDates];
   const dateFn=r=>anyDateKey(r[0])||dateKey(r[0])||scoreDateKey(r[0]);
   const freq={};
@@ -836,6 +857,7 @@ function topRefundReasons(dkOrDates,n=3){
   [...DB.refunds,...DB.ppRef].forEach(r=>{
     const dk=dateFn(r);
     if(!dk||!dates.includes(dk)) return;
+    if(filterYear!=null){const yr=_extractYear(r[0]);if(yr!=null&&yr!==filterYear)return;}
     const v=(r[1]||'').trim();
     if(!v) return;
     freq[v]=(freq[v]||0)+1;
