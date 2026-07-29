@@ -906,6 +906,52 @@ function formatTopReasonsBullet(topArr){
   return `${label}:${rows}`;
 }
 
+// ─── DATA SOURCE SANITY CHECK ─────────────────────────────────────────────────
+// Added 2026-07-28 after discovering PP_REF's hardcoded gid was silently pointing at the
+// "Cancellation Refunds" tab instead of "PayPal Disputes Refunds" — same row count, identical
+// rows, no error anywhere, just quietly wrong data for weeks. This check runs after every data
+// load and compares every pair of the refund-tracking sources (REFUNDS/Daily Refunds, PP_REF,
+// CANCEL — all three live in the same spreadsheet, all similarly shaped, which is exactly what
+// made the mixup possible and invisible). If two sources that are supposed to be DIFFERENT tabs
+// come back with the same row count AND byte-identical first/last rows, that's the exact
+// signature of a stale/wrong gid — flagged immediately as a visible banner instead of silently
+// shipping wrong numbers. This is a heuristic, not a proof — a real coincidence is astronomically
+// unlikely (would require two genuinely different tabs to have identical row counts and
+// identical multi-field content in both their first and last rows) but isn't strictly impossible.
+let _sourceWarnings=[];
+function _sanityCheckSources(){
+  _sourceWarnings=[];
+  const sources=[
+    ['Daily Refunds (REFUNDS)', DB.refunds],
+    ['PayPal Disputes Refunds (PP_REF)', DB.ppRef],
+    ['Cancellation Refunds (CANCEL)', DB.cancel],
+  ];
+  for(let i=0;i<sources.length;i++){
+    for(let j=i+1;j<sources.length;j++){
+      const[labelA,a]=sources[i],[labelB,b]=sources[j];
+      if(!a.length||!b.length) continue;
+      if(a.length!==b.length) continue;
+      const sameFirst=JSON.stringify(a[0])===JSON.stringify(b[0]);
+      const sameLast=JSON.stringify(a[a.length-1])===JSON.stringify(b[b.length-1]);
+      if(sameFirst&&sameLast){
+        _sourceWarnings.push(`"${labelA}" and "${labelB}" returned identical data (${a.length} rows, matching first & last rows) — one of their gid/sheet configs is very likely pointing at the wrong tab.`);
+      }
+    }
+  }
+  if(_sourceWarnings.length) console.warn('[DATA SOURCE SANITY CHECK]', _sourceWarnings);
+  return _sourceWarnings;
+}
+// Renders a persistent, hard-to-miss banner if the sanity check found a problem. Called once per
+// data load; the banner is prepended to whichever tab is currently showing so it's visible no
+// matter where the user navigates.
+function sourceWarningBanner(){
+  if(!_sourceWarnings.length) return '';
+  return `<div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem">
+    <div style="font-size:.8rem;font-weight:800;color:#991b1b;margin-bottom:.4rem">⚠️ Data source warning — numbers below may be incorrect</div>
+    ${_sourceWarnings.map(w=>`<div style="font-size:.78rem;color:#7f1d1d;line-height:1.6;margin-bottom:.25rem">${esc(w)}</div>`).join('')}
+    <div style="font-size:.72rem;color:#991b1b;font-style:italic;margin-top:.3rem">Check the SHEETS config's gid values against the actual tab URLs before trusting refund/cancellation figures.</div>
+  </div>`;
+}
 // ─── LOAD ALL ────────────────────────────────────────────────────────────────
 async function loadAll(){
   document.getElementById('statusChip').textContent='Loading…';
@@ -1010,6 +1056,7 @@ async function loadAll(){
     }
     DATES.sort((a,b)=>sortDK(a.k,b.k));
     buildPeriods(_dataOnlyDates);
+    _sanityCheckSources();
     document.getElementById('statusChip').textContent='✓ Updated '+new Date().toLocaleTimeString();
     Object.keys(_vCache).forEach(k=>delete _vCache[k]); // invalidate render cache on data reload
     switchView('daily',true);
@@ -1822,7 +1869,7 @@ function renderDaily(dk){
   const ppNewCases=ppQTotal!==null?ppQTotal:(pm?n(pm[8]):'—');
   const cancelDisplay=DB.cancel.length?(cancel.count===0?'0':cancel.count):'—';
 
-  let html='';
+  let html=sourceWarningBanner();
 
   // ── DAILY PERFORMANCE SUMMARY (moved to top 2026-07-09; redesigned as dept cards 2026-07-10) ──
   {
@@ -1935,9 +1982,14 @@ function renderDaily(dk){
     if(!finBullets.length) finBullets.push('No refund activity today.');
     // Total Refunds on its own row on top, with Manual/PayPal side-by-side below it
     // (2026-07-24, revised from a single flat row of 3 chips per feedback).
+    // 2026-07-28: Manual/PayPal now always show €0.00 rather than being omitted when one of
+    // them has no activity — previously if PayPal had no refunds that day, its chip disappeared
+    // entirely (looked like a missing box rather than a real "$0" result). Both chips render
+    // whenever there's any refund activity at all (totalRef>0); each shows its own true amount,
+    // zero included.
     const finChips=[`<div style="width:100%;display:flex;flex-direction:column;gap:.4rem">
       <div style="display:flex;gap:.4rem">${statChip(totalRef>0?fmtEur(totalRef):'—','Total Refunds','#dc2626')}</div>
-      ${(manualRef>0||ppRefAmt>0)?`<div style="display:flex;gap:.4rem">${manualRef>0?statChip(fmtEur(manualRef),'Manual','#1e293b'):''}${ppRefAmt>0?statChip(fmtEur(ppRefAmt),'PayPal','#1e293b'):''}</div>`:''}
+      ${totalRef>0?`<div style="display:flex;gap:.4rem">${statChip('€'+manualRef.toFixed(2),'Manual','#1e293b')}${statChip('€'+ppRefAmt.toFixed(2),'PayPal','#1e293b')}</div>`:''}
     </div>`];
 
     const _hasAny=csBullets.length||ppBullets.length||scBullets.length;
@@ -2760,7 +2812,7 @@ function renderWeekly(wKey,cmpWKey){
   const wkCsChRows=allCsRows.filter(r=>!isNone(r[2])&&!isOff(r[2])&&(r[2]||'').trim());
   const wkCsActRows=allCsRows.filter(r=>(r[3]||'').trim()&&!isNone(r[3])&&!isOff(r[3]));
 
-  let html='';
+  let html=sourceWarningBanner();
 
   // ═══════════════════════════════════════════════
   // SECTION 1 — WEEKLY SNAPSHOT
@@ -3544,7 +3596,7 @@ function renderMonthly(moKey,cmpMoKey){
   const monthlyInsightsHtml=buildMonthlyInsights({month,allDates,kingM,patM,gabM,mpd,sc,moTotalRef,moCancel,csChalMo,monthWeeks});
   // (banner with big stat numbers removed 2026-07-09 — date is now shown prominently
   //  in the period-strip selector at the top of the page instead)
-  let html=monthlyInsightsHtml+`
+  let html=sourceWarningBanner()+monthlyInsightsHtml+`
   <div class="snapshot-grid">
     <div class="snap-cluster cs-cl">
       <div class="snap-head">Customer Service</div>
