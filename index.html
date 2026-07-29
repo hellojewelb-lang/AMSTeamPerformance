@@ -1145,6 +1145,24 @@ function renderPeriod(){
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');}
+// Best-effort first-person → third-person rewrite, used where a rep's own free-text EOD entry
+// (naturally written "I noticed...", "my shift...") is quoted inline next to their name inside an
+// otherwise third-person summary sentence (2026-07-24). Simple pronoun/contraction substitution —
+// not full grammar correction, but covers the common cases seen in these EOD notes.
+function toThirdPerson(text,name){
+  if(!text) return text;
+  const nm=(name||'').trim()||'They';
+  let t=text;
+  t=t.replace(/\bI've\b/gi,`${nm} has`);
+  t=t.replace(/\bI'm\b/gi,`${nm} is`);
+  t=t.replace(/\bI'll\b/gi,`${nm} will`);
+  t=t.replace(/\bI'd\b/gi,`${nm} would`);
+  t=t.replace(/\bmyself\b/gi,'themselves');
+  t=t.replace(/\bmy\b/gi,'their');
+  t=t.replace(/\bme\b/gi,'them');
+  t=t.replace(/\bI\b/g,nm);
+  return t;
+}
 function isOff(s){return(s||'').trim().toUpperCase()==='OFF';}
 function isNone(s){const lo=(s||'').toLowerCase().trim();return!lo||lo.includes('no challenge')||lo.includes('no unusual')||lo==='none'||lo==='n/a';}
 function n(v){return parseInt((v||'0').replace(/,/g,'').trim())||0;}
@@ -1778,13 +1796,13 @@ function renderDaily(dk){
       // with no detail. Now names who flagged what and who did what about it, mirroring the
       // email-drivers fix above (r[1]=rep name, r[2]=challenge text, r[3]=action text).
       if(_csChRows.length>0&&_csActRows.length>0){
-        const _chList=_csChRows.map(r=>`<strong>${esc((r[1]||'').trim())}</strong>: ${esc((r[2]||'').trim())}`).join(' · ');
-        const _acList=_csActRows.map(r=>`<strong>${esc((r[1]||'').trim())}</strong>: ${esc((r[3]||'').trim())}`).join(' · ');
+        const _chList=_csChRows.map(r=>{const nm=(r[1]||'').trim();return `<strong>${esc(nm)}</strong>: ${esc(toThirdPerson((r[2]||'').trim(),nm).replace(/\.+$/,''))}`;}).join(' · ');
+        const _acList=_csActRows.map(r=>{const nm=(r[1]||'').trim();return `<strong>${esc(nm)}</strong>: ${esc(toThirdPerson((r[3]||'').trim(),nm).replace(/\.+$/,''))}`;}).join(' · ');
         csBullets.push(`<strong>${_csChRows.length}</strong> situation${_csChRows.length!==1?'s':''} flagged — ${_chList}.`);
         csBullets.push(`<strong>${_csActRows.length}</strong> response action${_csActRows.length!==1?'s':''} documented — ${_acList}.`);
       }
       else if(_csChRows.length>0){
-        const _chList=_csChRows.map(r=>`<strong>${esc((r[1]||'').trim())}</strong>: ${esc((r[2]||'').trim())}`).join(' · ');
+        const _chList=_csChRows.map(r=>{const nm=(r[1]||'').trim();return `<strong>${esc(nm)}</strong>: ${esc(toThirdPerson((r[2]||'').trim(),nm).replace(/\.+$/,''))}`;}).join(' · ');
         csBullets.push(`<strong>${_csChRows.length}</strong> situation${_csChRows.length!==1?'s':''} flagged today — ${_chList}.`);
       }
       else csBullets.push('No challenges reported — an operationally smooth day.');
