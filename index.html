@@ -1925,10 +1925,14 @@ function renderDaily(dk){
     // ── PP bullets ──
     const ppBullets=[];
     if(pm){
-      const _newCases=ppQTotal!==null?ppQTotal:n(pm[8]);
+      // FIXED 2026-07-28: ppQTotal is the Col Q "in progress" snapshot (same figure the
+      // "PayPal Disputes — In Progress" cluster in Today's Snapshot uses) — it's the count of
+      // cases currently active/awaiting resolution as of today, NOT cases newly received today.
+      // Was mislabeled "new cases received" here; corrected to "active cases" to match reality.
+      const _activeCases=ppQTotal!==null?ppQTotal:n(pm[8]);
       const _won=n(pm[9])+n(pm[10]),_lost=n(pm[11])+n(pm[12]),_closed=n(pm[13]);
       const _wr=_closed>0?Math.round(_won/_closed*100):null;
-      let l=`<strong>${_newCases||'—'}</strong> new case${_newCases!==1?'s':''} received`;
+      let l=`<strong>${_activeCases||'—'}</strong> active case${_activeCases!==1?'s':''} as of today`;
       if(ppQInquiries!==null||ppQClaims!==null) l+=` (${ppQInquiries!==null?ppQInquiries+' ':'—'}inquir${ppQInquiries!==1?'ies':'y'}, ${ppQClaims!==null?ppQClaims:'—'} claim${ppQClaims!==1?'s':''})`;
       ppBullets.push(l+'.');
       if(_closed>0) ppBullets.push(`<strong>${_closed}</strong> case${_closed!==1?'s':''} closed: <strong style="color:var(--win)">${_won} won</strong>, <strong style="color:var(--los)">${_lost} lost</strong> — <strong style="color:${_wr!==null&&_wr>=50?'var(--win)':'var(--los)'}">${_wr!==null?_wr+'%':'—'} win rate</strong>.`);
@@ -1944,7 +1948,10 @@ function renderDaily(dk){
     // Always show all 3 chips for a consistent layout day-to-day (fixed 2026-07-15) — a day with
     // 0 closed cases isn't a bug, it just means nothing resolved yet; show "0"/"—" instead of
     // hiding the chips, so the box doesn't visually shrink to a single stat on quiet days.
-    const ppChips=[statChip(_ppNewC!==null?_ppNewC:'—','New Cases','#7c3aed'),statChip(_ppWrC!==null?_ppWrC+'%':'—','Win Rate',_ppWrC!==null&&_ppWrC>=50?'#15803d':_ppWrC!==null?'#dc2626':'#7c3aed'),statChip(_ppClosedC,'Closed','#7c3aed')];
+    // FIXED 2026-07-28: was labeled "New Cases" — _ppNewC is the Col Q in-progress total (active
+    // cases as of today), not cases newly received today. Relabeled to match, same as the
+    // ppBullets fix above.
+    const ppChips=[statChip(_ppNewC!==null?_ppNewC:'—','Active Cases','#7c3aed'),statChip(_ppWrC!==null?_ppWrC+'%':'—','Win Rate',_ppWrC!==null&&_ppWrC>=50?'#15803d':_ppWrC!==null?'#dc2626':'#7c3aed'),statChip(_ppClosedC,'Closed','#7c3aed')];
 
     // ── SC bullets ──
     const scBullets=[];
