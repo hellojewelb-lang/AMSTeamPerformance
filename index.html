@@ -482,6 +482,19 @@ const SHEETS = {
 let DB = { cs:[], sc:[], pp:[], ppQ:[], score:[], overallSC:[], refunds:[], ppRef:[], cancel:[], hours:[],
            auditKing:[], auditPatrick:[], auditGabby:[], auditVeronica:[], auditMaria:[],
            ppDisputes:[], jewel:[] };
+
+// ─── PayPal Monthly Dispute Rate — permanent record ────────────────────────────────────────────
+// Maria's "Dispute Rate Bonus" tier (Scorecard → Monthly → Incentive Metrics) depends on the
+// team's overall PayPal dispute rate for the month — a figure reported outside this dashboard, not
+// derivable from the sheets loaded here. It used to be entered ad hoc into a per-browser
+// localStorage field, which doesn't persist across devices/browsers and is lost if the browser's
+// storage is ever cleared. Confirmed values are recorded here instead so they're permanent and
+// travel with the file itself. Keyed "M-YYYY" (calendar month number, no leading zero, e.g. "6-2026"
+// for June 2026). Add a new line here whenever a month's rate is confirmed.
+const PP_DISPUTE_RATES={
+  '6-2026': 2.07,  // June 2026 — confirmed 2026-07-31
+  '7-2026': 1.42,  // July 2026 — confirmed 2026-07-31
+};
 let SCORE_COLS = {};
 let DATES=[], WEEKS=[], MONTHS=[], _dataOnlyDates=[];
 const _vCache={};  // render cache — keyed by view+params, cleared on data reload
@@ -3391,7 +3404,7 @@ function calcIncentiveLevel(q,pct){
 // SELECTED month (recomputed on every renderMonthly call), so insights always reflect
 // whichever month/comparison the user has navigated to via the period dropdown.
 function buildMonthlyInsights(ctx){
-  const {month,allDates,kingM,patM,gabM,mpd,sc,moTotalRef,moCancel,csChalMo,monthWeeks}=ctx;
+  const {month,allDates,kingM,patM,gabM,mpd,sc,moTotalRef,moManualRef,moPPRef,moCancel,csChalMo,monthWeeks}=ctx;
   // Bullets are grouped PER DEPARTMENT so wins/improvements for a team stay together and are
   // visually distinguishable by color, mirroring the department-card style used elsewhere.
   const cs=[], pp=[], scB=[], fin=[], suggestions=[];
@@ -3464,9 +3477,9 @@ function buildMonthlyInsights(ctx){
     if(ws2.pending>ws1.pending+20) scB.push(warn(`Pending cases climbed over the month — from <strong>${ws1.pending}</strong> to <strong>${ws2.pending}</strong>.`));
   }
 
-  // ── Refunds ──
+  // ── Refunds ── (2026-07-31: bullet now breaks out Manual vs PayPal, matching the Daily tab)
   if(moTotalRef>0){
-    fin.push(warn(`Total refunds reached <strong>€${moTotalRef.toFixed(2)}</strong> for the month.`));
+    fin.push(warn(`Total refunds reached <strong>€${moTotalRef.toFixed(2)}</strong> for the month (€${moManualRef.toFixed(2)} manual${moPPRef>0?', €'+moPPRef.toFixed(2)+' via PayPal':''}).`));
     // Top 3 (or fewer) refund reasons for the month — sourced from the Daily Refunds + PayPal
     // Disputes Refunds sheets' Reason column, same helper used on Daily/Weekly. Added 2026-07-24,
     // widened from single "main reason" to top-3-or-fewer.
@@ -3491,7 +3504,13 @@ function buildMonthlyInsights(ctx){
   const csChips=[kingM?statChip(kingM.avgQ!=null?kingM.avgQ+'%':'—','King Quality','#2563eb'):null,patM?statChip(patM.avgQ!=null?patM.avgQ+'%':'—','Patrick Quality','#2563eb'):null,gabM?statChip(gabM.avgQ!=null?gabM.avgQ+'%':'—','Gabby Quality','#2563eb'):null];
   const ppChips=[statChip(mpd.total||'—','Total Disputes','#7c3aed'),mpd.winRate!=null?statChip(mpd.winRate+'%','Win Rate',mpd.winRate>=50?'#15803d':'#dc2626'):null,statChip(mpd.ongoing||'—','Ongoing','#7c3aed')];
   const scChips=[statChip(sc.totNew||'—','New Cases','#059669'),statChip(sc.closed||'—','Closed','#059669'),statChip(sc.pending||'—','Pending',sc.pending>100?'#dc2626':'#059669'),moCancel>0?statChip(moCancel,'Cancellations','#059669'):null];
-  const finChips=[statChip(moTotalRef>0?'€'+moTotalRef.toFixed(2):'—','Total Refunds','#dc2626')];
+  // CHANGED 2026-07-31: Total Refunds on top with Manual/PayPal chips below, same layout as the
+  // Daily tab's Financial Activity card (both always render once there's any refund activity,
+  // €0.00 included, so a missing chip never reads as "no data").
+  const finChips=[`<div style="width:100%;display:flex;flex-direction:column;gap:.4rem">
+    <div style="display:flex;gap:.4rem">${statChip(moTotalRef>0?'€'+moTotalRef.toFixed(2):'—','Total Refunds','#dc2626')}</div>
+    ${moTotalRef>0?`<div style="display:flex;gap:.4rem">${statChip('€'+moManualRef.toFixed(2),'Manual','#1e293b')}${statChip('€'+moPPRef.toFixed(2),'PayPal','#1e293b')}</div>`:''}
+  </div>`];
 
   const suggBlock=`<ul style="margin:0;padding:0 0 0 1.1rem;list-style:disc;display:flex;flex-direction:column;gap:.4rem">
     ${suggestions.map(t=>`<li style="font-size:.83rem;line-height:1.7;color:#334155">${t}</li>`).join('')}
@@ -3570,8 +3589,11 @@ function renderMonthly(moKey,cmpMoKey){
   const csChalMo=allCsRowsMo.filter(r=>!isNone(r[2])&&!isOff(r[2])&&(r[2]||'').trim()).length;
   const csActMo=allCsRowsMo.filter(r=>!isNone(r[3])&&!isOff(r[3])&&(r[3]||'').trim()).length;
 
-  // Refunds
-  const moTotalRef=allDates.reduce((s,dk)=>s+refundForDate(DB.refunds,dk)+refundForDate(DB.ppRef,dk),0);
+  // Refunds — split Manual (Daily Refunds sheet) vs PayPal (PayPal Disputes Refunds sheet), same
+  // breakdown already shown on the Daily tab (2026-07-31, per request).
+  const moManualRef=allDates.reduce((s,dk)=>s+refundForDate(DB.refunds,dk),0);
+  const moPPRef=allDates.reduce((s,dk)=>s+refundForDate(DB.ppRef,dk),0);
+  const moTotalRef=moManualRef+moPPRef;
   const moCancel=allDates.reduce((s,dk)=>s+cancelForDate(DB.cancel,dk).count,0);
 
   // Helpers
@@ -3600,7 +3622,7 @@ function renderMonthly(moKey,cmpMoKey){
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const wrColor=mpd.winRate!=null?(mpd.winRate>=50?'var(--win)':'var(--los)'):'#94a3b8';
   const fmtEur=v=>v>0?`€${v.toFixed(2)}`:'\u2014';
-  const monthlyInsightsHtml=buildMonthlyInsights({month,allDates,kingM,patM,gabM,mpd,sc,moTotalRef,moCancel,csChalMo,monthWeeks});
+  const monthlyInsightsHtml=buildMonthlyInsights({month,allDates,kingM,patM,gabM,mpd,sc,moTotalRef,moManualRef,moPPRef,moCancel,csChalMo,monthWeeks});
   // (banner with big stat numbers removed 2026-07-09 — date is now shown prominently
   //  in the period-strip selector at the top of the page instead)
   let html=sourceWarningBanner()+monthlyInsightsHtml+`
@@ -3628,6 +3650,7 @@ function renderMonthly(moKey,cmpMoKey){
         <div class="snap-metric"><span class="snap-val">${sc.totNew}</span><span class="snap-lbl">New Cases</span></div>
         <div class="snap-metric"><span class="snap-val green">${sc.closed}</span><span class="snap-lbl">Resolved</span></div>
         <div class="snap-metric"><span class="snap-val muted">${sc.pending}</span><span class="snap-lbl">Pending</span></div>
+        <div class="snap-metric"><span class="snap-val">${moCancel||'—'}</span><span class="snap-lbl">Cancellations</span></div>
       </div>
       <div class="snap-note">Veronica — Supply Chain Manager${sc.damA+sc.damD>0?` &bull; Damage: ${sc.damA} approved, ${sc.damD} denied`:''}</div>
     </div>
@@ -3635,9 +3658,8 @@ function renderMonthly(moKey,cmpMoKey){
       <div class="snap-head">Financials</div>
       <div class="snap-metrics">
         <div class="snap-metric"><span class="snap-val red" style="font-size:1.5rem">${fmtEur(moTotalRef)}</span><span class="snap-lbl">Total Refunds</span></div>
-        <div class="snap-metric"><span class="snap-val">${moCancel||'—'}</span><span class="snap-lbl">Cancellations</span></div>
       </div>
-      <div class="snap-note">${moTotalRef>0?fmtEur(moTotalRef)+' in refunds':'No refund data yet'}</div>
+      ${(moManualRef>0||moPPRef>0)?`<div class="snap-note" style="font-size:.62rem;color:#94a3b8">Daily Refunds: ${fmtEur(moManualRef)} &nbsp;·&nbsp; PayPal Refunds: ${fmtEur(moPPRef)}</div>`:`<div class="snap-note">No refund data yet</div>`}
     </div>
   </div>`;
 
@@ -4390,13 +4412,33 @@ function renderScorecard(view){
     </select>`;
     html+=`<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem"><span style="font-size:.8rem;font-weight:600;color:var(--muted)">📅 Month:</span>${mSel}</div>${legend}`;
 
-    const moKey=document.getElementById('scMonthSel')?.value||MONTHS[MONTHS.length-1]?.key||'';
+    // FIXED 2026-07-30: on the tab's very first render, the <select id="scMonthSel"> element doesn't
+    // exist in the DOM yet (it's part of the html string being built right now), so the old fallback
+    // (MONTHS[MONTHS.length-1] — the LATEST month that has any data row, which can already include
+    // August if forward-scheduled/advance data exists) silently rendered a different month's week
+    // table than the dropdown displayed. The dropdown's own default (set further below, after render)
+    // is the real current calendar month — so that must be the fallback here too, or the two go out of
+    // sync exactly like this: dropdown shows "July 2026" while the table underneath shows August's
+    // weeks (Jul27/Aug3/Aug10/Aug17/Aug24/Aug31). Default to the real current month if it has data;
+    // only fall back to the latest data month if the current month has none at all.
+    const _curMoKey=new Date().getMonth()+1;
+    const _curMoHasData=MONTHS.some(m=>m.key===_curMoKey);
+    const moKey=document.getElementById('scMonthSel')?.value||(_curMoHasData?String(_curMoKey):String(MONTHS[MONTHS.length-1]?.key||''));
     const month=MONTHS.find(m=>String(m.key)===String(moKey))||MONTHS[MONTHS.length-1];
     if(!month){html+=`<div class="no-data">No month data.</div>`;document.getElementById('dash').innerHTML=html;return;}
 
-    // Week buckets within month — generate EVERY calendar week that overlaps this month (not just
-    // weeks that already have data rows), so the table always shows the full month's shape (typically
-    // 4, occasionally 5 weeks) by default instead of only growing as data arrives.
+    // Week buckets within month — generate every calendar week overlapping this month, then keep
+    // only the ones whose OWN MONDAY falls within the selected month (not just weeks that already
+    // have data rows), so the table always shows the month's own weeks (typically 4, occasionally 5)
+    // by default instead of only growing as data arrives.
+    // FIXED 2026-07-31: this filter used to be display-only (a separate `_colWeeks` list) while
+    // `monthWeeks` itself — and therefore every total: Month Total, CS Level, Veronica's and Jewel's
+    // incentive $ — still summed over the unfiltered set, which for July included the Jun 29–Jul 5
+    // boundary week as a 5th week. Confirmed this was wrong: a month's totals should be based on the
+    // same weeks shown in its columns, so July's incentive math should run over 4 weeks, not 5 — that
+    // boundary week's data belongs to June's month instead (June's own week list already includes it,
+    // since June 29 is its Monday). The filter now applies directly here, so monthWeeks IS the
+    // 4-week set — nothing downstream needs separate "display vs totals" handling anymore.
     const wm=new Map();
     {
       const _moNum=+month.key;
@@ -4406,6 +4448,7 @@ function renderScorecard(view){
       for(let _d=new Date(_firstOfMo);_d<=_lastOfMo;_d.setDate(_d.getDate()+1)){
         const _dk=`${_d.getMonth()+1}-${_d.getDate()}`;
         const{monKey,label}=weekBounds(_dk);
+        if(+monKey.split('-')[0]!==_moNum) continue; // week's own Monday must fall in the selected month
         if(!wm.has(monKey))wm.set(monKey,{key:monKey,label,dates:[]});
       }
     }
@@ -4422,14 +4465,22 @@ function renderScorecard(view){
       return{emails:e,target:t,pct:t>0?+((e/t)*100).toFixed(1):null,hours:+h.toFixed(1),quality:q.length?+(q.reduce((a,b)=>a+b,0)/q.length).toFixed(1):null,adminHours:+ah.toFixed(1)};
     };
 
-    // Local (month-scoped) week numbering — position within THIS month's own week list, so it's
-    // correct even for placeholder weeks that don't (yet) exist in the global WEEKS array.
+    // Local (month-scoped) week numbering — position within THIS month's own week list
+    // (monthWeeks — now the same 4-week set used for all totals, see fix above), so "Week 1" always
+    // matches both the first column shown and the first week counted in every total.
     const _moWeekNum=wk=>monthWeeks.findIndex(w=>w.key===wk.key)+1;
-    const wkShort=wk=>{
-      const parts=(wk.key||'').split('-').map(Number);
-      const mo=parts[0],day=parts[1];
-      return `${MS[mo]||''} ${day||''}<br><span style="font-size:.55rem;color:#94a3b8;font-weight:700">Week ${_moWeekNum(wk)}</span>`;
-    };
+    // CHANGED 2026-07-30: was showing the week's Monday calendar date as the primary label (e.g.
+    // "Jun 29" or "Aug 3") with "Week N" as a small subline — confusing for boundary weeks, since a
+    // July month view's first/last week Monday can genuinely fall in June or spill into August even
+    // when the code is working correctly (a week is Mon–Sun and months don't align to week starts).
+    // Per request, "Week N" is now the primary label and the SELECTED month's own name is the
+    // subline, so every column unambiguously reads as belonging to the chosen month (e.g. "Week 1 ·
+    // Jul") regardless of which calendar dates that week actually spans.
+    // CHANGED 2026-07-30: added the actual covered date range as a third line (per request — "week
+    // one from this date to this date so it's clear"), using wk.label which already holds the real
+    // Mon–Sun span computed by weekBounds() (year suffix stripped here since it's redundant next to
+    // the month dropdown/heading).
+    const wkShort=wk=>`Week ${_moWeekNum(wk)}<br><span style="font-size:.55rem;color:#94a3b8;font-weight:700">${MS[+month.key]||''}</span><br><span style="font-size:.5rem;color:#94a3b8;font-weight:600">${esc((wk.label||'').replace(', 2026',''))}</span>`;
     const wkCell=(d,isCS)=>{
       if(!d)return`<td style="padding:.35rem .35rem;border:1px solid #e8edf2;text-align:center;background:#f8fafc"><span style="color:#cbd5e1;font-size:.7rem">—</span></td>`;
       const val=isCS?d.pct:d.quality;
@@ -4495,8 +4546,12 @@ function renderScorecard(view){
     const _mpd=calcPPDisputes(month.dates,_scYear);
     const _mWon=_mpd.wonByResolved; // wins where Col I (resolution date) falls in this month
     const _mBase=+(_mWon*0.75).toFixed(2);
-    let _drVal=null;
-    try{const _r=localStorage.getItem('ppDR_'+month.key);if(_r!=null&&_r!=='')_drVal=parseFloat(_r);}catch(_e){}
+    // Check the permanent PP_DISPUTE_RATES record first (keyed "M-YYYY"); only fall back to the
+    // per-browser localStorage entry for months that haven't been formally confirmed/saved yet.
+    const _drKey=`${+month.key}-${_scYear}`;
+    let _drVal=null,_drSaved=false;
+    if(PP_DISPUTE_RATES[_drKey]!=null){_drVal=PP_DISPUTE_RATES[_drKey];_drSaved=true;}
+    else{try{const _r=localStorage.getItem('ppDR_'+month.key);if(_r!=null&&_r!=='')_drVal=parseFloat(_r);}catch(_e){}}
     const _drBonus=_drVal===null?null:_drVal<=1.5?150:_drVal<=2.0?75:_drVal<=2.5?50:0;
     const _drBonusTxt=_drVal===null?'—':_drBonus>0?'+$'+_drBonus:'$0 (rate above 2.50%)';
     const _drBonusClr=_drBonus===null?'#94a3b8':_drBonus>0?'#15803d':'#dc2626';
@@ -4525,8 +4580,13 @@ function renderScorecard(view){
     // Veronica card body
     const _vBody=`${_ir('Average Quality Score',_vQ!=null?_vQ+'%':'—',_vQNote,_vQ!=null?(_vQ>=85?'#15803d':'#dc2626'):'#94a3b8')}${_ir('Quality Bonus',_vQB>0?'+$'+_vQB:'$0','',_vQB>0?'#15803d':'#94a3b8')}${_ir('Cases Handled',_vCases,_vVKNote,_vVK>0?'#1d4ed8':'#94a3b8')}${_ir('Volume Kicker',_vVK>0?'+$'+_vVK:'$0','100–150 = $10 · 151–200 = $20 · 200+ = $30',_vVK>0?'#1d4ed8':'#94a3b8')}`;
 
-    // Maria card body (with editable dispute rate input)
-    const _mBody=`${_ir('Won Dispute Cases',_mWon,`${_mWon} cases found via Col I (resolution date) in ${month.label}`,_mWon>0?'#1d4ed8':'#94a3b8')}${_ir('Base Incentive','$'+_mBase,_mWon+' won × $0.75 per case',_mBase>0?'#15803d':'#94a3b8')}<div style="padding:.28rem 0;border-bottom:1px dashed #f1f5f9"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem"><div style="flex:1"><div style="font-size:.73rem;font-weight:600;color:#374151">Monthly Dispute Rate</div><div style="font-size:.56rem;color:#94a3b8">≤2.50%=+$50 · ≤2.00%=+$75 · ≤1.50%=+$150</div></div><div style="display:flex;align-items:center;gap:.2rem"><input type="number" step="0.01" min="0" max="100" placeholder="e.g. 2.07" value="${_drVal!==null?_drVal:''}" style="width:66px;padding:.2rem .3rem;border:1px solid #d1d5db;border-radius:4px;font-size:.73rem;font-family:inherit;text-align:right;color:#374151;outline-color:#7c3aed" onchange="(function(v){try{v=v.trim();if(v)localStorage.setItem('ppDR_${month.key}',v);else localStorage.removeItem('ppDR_${month.key}');}catch(_){} renderScorecard('monthly');})(this.value)"><span style="font-size:.68rem;color:#64748b;font-weight:600">%</span></div></div><div style="font-size:.59rem;font-weight:600;color:${_drBonusClr};margin-top:.18rem">${_drTierNote}</div></div>${_ir('Dispute Rate Bonus',_drBonusTxt,'Highest qualifying tier — bonuses do not stack',_drBonusClr)}`;
+    // Maria card body — dispute-rate row shows a locked-in "saved" figure for months confirmed in
+    // PP_DISPUTE_RATES (no input, can't be accidentally edited); months without a saved figure still
+    // get the original editable input that writes to localStorage.
+    const _drRowHtml=_drSaved
+      ?`<div style="padding:.28rem 0;border-bottom:1px dashed #f1f5f9"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem"><div style="flex:1"><div style="font-size:.73rem;font-weight:600;color:#374151">Monthly Dispute Rate</div><div style="font-size:.56rem;color:#94a3b8">≤2.50%=+$50 · ≤2.00%=+$75 · ≤1.50%=+$150</div></div><div style="font-size:.85rem;font-weight:800;color:#374151">${_drVal}% <span style="font-size:.56rem;font-weight:700;color:#16a34a;vertical-align:middle">✓ saved</span></div></div><div style="font-size:.59rem;font-weight:600;color:${_drBonusClr};margin-top:.18rem">${_drTierNote}</div></div>`
+      :`<div style="padding:.28rem 0;border-bottom:1px dashed #f1f5f9"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem"><div style="flex:1"><div style="font-size:.73rem;font-weight:600;color:#374151">Monthly Dispute Rate</div><div style="font-size:.56rem;color:#94a3b8">≤2.50%=+$50 · ≤2.00%=+$75 · ≤1.50%=+$150</div></div><div style="display:flex;align-items:center;gap:.2rem"><input type="number" step="0.01" min="0" max="100" placeholder="e.g. 2.07" value="${_drVal!==null?_drVal:''}" style="width:66px;padding:.2rem .3rem;border:1px solid #d1d5db;border-radius:4px;font-size:.73rem;font-family:inherit;text-align:right;color:#374151;outline-color:#7c3aed" onchange="(function(v){try{v=v.trim();if(v)localStorage.setItem('ppDR_${month.key}',v);else localStorage.removeItem('ppDR_${month.key}');}catch(_){} renderScorecard('monthly');})(this.value)"><span style="font-size:.68rem;color:#64748b;font-weight:600">%</span></div></div><div style="font-size:.59rem;font-weight:600;color:${_drBonusClr};margin-top:.18rem">${_drTierNote}</div></div>`;
+    const _mBody=`${_ir('Won Dispute Cases',_mWon,`${_mWon} cases found via Col I (resolution date) in ${month.label}`,_mWon>0?'#1d4ed8':'#94a3b8')}${_ir('Base Incentive','$'+_mBase,_mWon+' won × $0.75 per case',_mBase>0?'#15803d':'#94a3b8')}${_drRowHtml}${_ir('Dispute Rate Bonus',_drBonusTxt,'Highest qualifying tier — bonuses do not stack',_drBonusClr)}`;
 
     // ── Jewel — computed for real from audit/score/PP data, one calc per week in this month ──
     const _jWeekCalcs=monthWeeks.map(wk=>({wk,c:jewelWeekCalc(wk)}));
@@ -4547,6 +4607,9 @@ function renderScorecard(view){
       </div>
     </div>`;
 
+    // FIXED 2026-07-31: _jWeekCalcs is now built straight from monthWeeks (the 4-week set for July),
+    // so the grid columns and every subtotal below are already consistent — no separate "display vs
+    // totals" list needed anymore.
     const _jBody=_jWeekCalcs.length
       ?`${_jWkRow('Team Members Met KPIs ($5/member/week)',_jWeekCalcs.map(x=>({wk:x.wk,v:_jTeamVals[_jWeekCalcs.indexOf(x)]})))}${_jWkRow('Own Audit Target Met ($10/week)',_jWeekCalcs.map(x=>({wk:x.wk,v:_jOwnVals[_jWeekCalcs.indexOf(x)]})))}${_ir('Team KPI Subtotal','$'+_jTeamSum.toFixed(0),'',_jTeamSum>0?'#15803d':'#94a3b8')}${_ir('Own KPI Subtotal','$'+_jOwnSum.toFixed(0),'',_jOwnSum>0?'#15803d':'#94a3b8')}${_ir('Won Cases Incentive','$'+_jWonAmt.toFixed(2),_jWonCases+' cases × $0.50',_jWonAmt>0?'#1d4ed8':'#94a3b8')}`
       :`<div style="padding:1.5rem;text-align:center;color:#94a3b8;font-size:.75rem">No data for ${month.label} yet</div>`;
