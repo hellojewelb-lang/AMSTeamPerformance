@@ -3357,30 +3357,168 @@ function renderWeekly(wKey,cmpWKey){
 // ═══════════════════════════════════════════════════════════
 // MONTHLY REPORT
 // ═══════════════════════════════════════════════════════════
-function renderWeeklyComparison(w1,w2){
-  const pp1=aggPP(w1.dates),pp2=aggPP(w2.dates);
-  const sc1=aggSC(w1.dates),sc2=aggSC(w2.dates);
-  const delta=(a,b,higher='good')=>{const d=a-b;if(!isFinite(d)||d===0)return'';const good=(higher==='good'&&d>0)||(higher==='bad'&&d<0);return`<span style="color:${good?'var(--win)':'var(--los)'};font-size:.65rem;font-weight:700;margin-left:.3rem">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;};
-  const td=(v1,v2,cls='',higher='good')=>`<td class="nc ${cls}">${v1||'–'}</td><td class="nc ${cls}">${v2||'–'}</td><td class="nc" style="font-size:.75rem">${delta(+v1||0,+v2||0,higher)}</td>`;
-  const rowH=`<tr><th style="min-width:190px">Metric</th><th class="dh">${w1.label}</th><th class="dh">${w2.label}</th><th class="dh">Δ</th></tr>`;
-  return `
-    <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem">
-      ⇌ <strong style="color:#4c1d95">Week of ${w1.label}</strong> vs <strong style="color:#4c1d95">Week of ${w2.label}</strong>
+// ── Comparison report (Weekly + Monthly "Compare" button) ──────────────────────
+// REBUILT 2026-08-02: replaced the old compact 2-table (PayPal + Supply Chain only, no Customer
+// Service, no narrative) with a standalone report card matching the reference design the user
+// supplied (weekly_comparison_jan_19_31_2026.html) — dark header bar with a period badge, an
+// increase/decrease legend, one comparison table per department (now including Customer Service,
+// which the old version omitted entirely), and a "Key Observations" section with narrative
+// highlight boxes summarizing the biggest swings per department. Shared by both
+// renderWeeklyComparison and renderMonthlyComparison so the two stay visually identical apart from
+// their labels/title.
+//
+// Trend arrow convention (matches the reference exactly): period2 > period1 → red ↑ ("increased"),
+// period2 < period1 → green ↓ ("decreased"), equal → "—". This is a pure magnitude indicator, not a
+// good/bad judgment call — e.g. rising refunds get the same red ↑ as rising email volume.
+function _cmpTrend(v1,v2){
+  const a=+v1||0,b=+v2||0;
+  if(a===b) return `<div style="text-align:center;font-size:1.25rem;color:#94a3b8">—</div>`;
+  return b>a
+    ? `<div style="text-align:center;font-size:1.25rem;font-weight:700;color:#dc2626">↑</div>`
+    : `<div style="text-align:center;font-size:1.25rem;font-weight:700;color:#10b981">↓</div>`;
+}
+function _cmpRow(label,v1,v2,fmt){
+  fmt=fmt||(x=>(+x||0).toLocaleString());
+  return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:.75rem 1rem;border-bottom:1px solid #e2e8f0;font-size:.875rem;align-items:center">
+    <div style="color:#334155;font-weight:500">${label}</div>
+    <div style="color:#1e293b;font-weight:600;text-align:center">${fmt(v1)}</div>
+    <div style="color:#1e293b;font-weight:600;text-align:center">${fmt(v2)}</div>
+    ${_cmpTrend(v1,v2)}
+  </div>`;
+}
+function _cmpSection(title,rowsHtml,p1Label,p2Label){
+  return `<div style="margin-bottom:1.25rem">
+    <div style="font-size:1rem;font-weight:700;color:#1e293b;margin-bottom:.625rem">${title}</div>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:4px;overflow:hidden">
+      <div style="background:#f8fafc;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:.75rem 1rem;border-bottom:1px solid #e2e8f0;font-weight:700;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#64748b">
+        <div>Metric</div><div>${p1Label}</div><div>${p2Label}</div><div>Trend</div>
+      </div>
+      ${rowsHtml}
     </div>
-    <div class="section"><div class="sh pp-s"><div class="sh-icon pp-s">⚖️</div><div class="sh-ttl">PayPal Disputes</div></div>
-    <div class="tbl-wrap"><table class="ctbl"><thead>${rowH}</thead><tbody>
-      <tr>${td(pp1.totNew,pp2.totNew,'','bad')}<td class="mn" rowspan="1">Total New</td></tr>
-      <tr>${td(pp1.totClosed,pp2.totClosed)}<td class="mn">Total Closed</td></tr>
-      <tr>${td(pp1.inqWin+pp1.claimWin,pp2.inqWin+pp2.claimWin,'win')}<td class="mn">Won</td></tr>
-      <tr>${td(pp1.inqLost+pp1.claimLost,pp2.inqLost+pp2.claimLost,'loss','bad')}<td class="mn">Lost</td></tr>
-      <tr>${td(pp1.winRate+'%',pp2.winRate+'%','win')}<td class="mn">Win Rate</td></tr>
-    </tbody></table></div></div>
-    <div class="section"><div class="sh sc-s"><div class="sh-icon sc-s">📦</div><div class="sh-ttl">Supply Chain</div></div>
-    <div class="tbl-wrap"><table class="ctbl"><thead>${rowH}</thead><tbody>
-      <tr>${td(sc1.totNew,sc2.totNew,'','bad')}<td class="mn">Total New</td></tr>
-      <tr>${td(sc1.closed,sc2.closed,'win')}<td class="mn">Closed</td></tr>
-      <tr>${td(sc1.pending,sc2.pending,'','bad')}<td class="mn">Pending</td></tr>
-    </tbody></table></div></div>`;
+  </div>`;
+}
+function _cmpHighlight(title,text){
+  return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:1rem;margin-bottom:1rem">
+    <div style="font-weight:700;color:#1e293b;margin-bottom:.5rem;font-size:.875rem">${title}</div>
+    <div style="font-size:.875rem;color:#475569;line-height:1.6">${text}</div>
+  </div>`;
+}
+// Builds one narrative sentence: "Label increased from A to B (↑12.3%)." Handles the a===0 case
+// (no meaningful % base) and the no-change case separately so the wording always reads naturally.
+function _cmpChangeText(label,v1,v2,fmt){
+  fmt=fmt||(x=>(+x||0).toLocaleString());
+  const a=+v1||0,b=+v2||0,diff=b-a;
+  if(diff===0) return `${label} held steady at ${fmt(b)}.`;
+  const dir=diff>0?'increased':'decreased',arrow=diff>0?'↑':'↓';
+  if(a===0) return `${label} increased from ${fmt(0)} to ${fmt(b)}.`;
+  const pct=Math.abs(diff/a*100);
+  return `${label} ${dir} from ${fmt(a)} to ${fmt(b)} (${arrow}${pct.toFixed(1)}%).`;
+}
+function _cmpCSData(dates){
+  const hoursRows=DB.hours.filter(r=>dates.some(dk=>anyDateKey(r[0])===dk||dateKey(r[0])===dk));
+  const emails=hoursRows.reduce((s,r)=>s+(parseFloat((r[2]||'').replace(/,/g,''))||0),0);
+  const manualRef=dates.reduce((s,dk)=>s+refundForDate(DB.refunds,dk),0);
+  const ppRef=dates.reduce((s,dk)=>s+refundForDate(DB.ppRef,dk),0);
+  const cancels=dates.reduce((s,dk)=>s+cancelForDate(DB.cancel,dk).count,0);
+  return{emails,manualRef,ppRef,cancels};
+}
+function renderComparisonReport({reportType,periodWord,p1Label,p2Label,p1LabelShort,p2LabelShort,dates1,dates2}){
+  const fmtCount=x=>(+x||0).toLocaleString();
+  const fmtEurCmp=x=>'€'+(+x||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const cs1=_cmpCSData(dates1), cs2=_cmpCSData(dates2);
+  const sc1=aggSC(dates1), sc2=aggSC(dates2);
+  const pp1=aggPP(dates1), pp2=aggPP(dates2);
+
+  const csRows=
+    _cmpRow('Emails Handled',cs1.emails,cs2.emails,fmtCount)+
+    _cmpRow('Manual Refunds',cs1.manualRef,cs2.manualRef,fmtEurCmp)+
+    _cmpRow('PayPal Refunds',cs1.ppRef,cs2.ppRef,fmtEurCmp)+
+    _cmpRow('Cancellations within 24H',cs1.cancels,cs2.cancels,v=>fmtCount(v)+' orders');
+
+  const scRows=
+    _cmpRow('New Address Issues',sc1.addr,sc2.addr,fmtCount)+
+    _cmpRow('New Delivery Issues',sc1.del,sc2.del,fmtCount)+
+    _cmpRow('Damaged/Missing (Supplier Approved)',sc1.damA,sc2.damA,fmtCount)+
+    _cmpRow('Damaged/Missing (Supplier Declined)',sc1.damD,sc2.damD,fmtCount)+
+    _cmpRow(`Total New This ${periodWord}`,sc1.totNew,sc2.totNew,fmtCount)+
+    _cmpRow(`Total Closed This ${periodWord}`,sc1.closed,sc2.closed,fmtCount)+
+    _cmpRow('Total Pending',sc1.pending,sc2.pending,fmtCount);
+
+  const ppRows=
+    _cmpRow('New Inquiries',pp1.newInq,pp2.newInq,fmtCount)+
+    _cmpRow('New Claims',pp1.newClaim,pp2.newClaim,fmtCount)+
+    _cmpRow('Escalated (Inquiry → Claim)',pp1.esc,pp2.esc,fmtCount)+
+    _cmpRow('Total New Cases',pp1.totNew,pp2.totNew,fmtCount)+
+    _cmpRow('Inquiries Won',pp1.inqWin,pp2.inqWin,fmtCount)+
+    _cmpRow('Inquiries Lost',pp1.inqLost,pp2.inqLost,fmtCount)+
+    _cmpRow('Claims Won',pp1.claimWin,pp2.claimWin,fmtCount)+
+    _cmpRow('Claims Lost',pp1.claimLost,pp2.claimLost,fmtCount)+
+    _cmpRow('Total Closed Cases',pp1.totClosed,pp2.totClosed,fmtCount);
+
+  const csObs=[
+    _cmpChangeText('Email volume',cs1.emails,cs2.emails,v=>fmtCount(v)+' emails'),
+    _cmpChangeText('Manual refunds',cs1.manualRef,cs2.manualRef,fmtEurCmp),
+    _cmpChangeText('PayPal refunds',cs1.ppRef,cs2.ppRef,fmtEurCmp),
+    _cmpChangeText('Cancellations within 24 hours',cs1.cancels,cs2.cancels,v=>fmtCount(v)+' orders'),
+  ].join(' ');
+  const scObs=[
+    _cmpChangeText('Address issues',sc1.addr,sc2.addr,fmtCount),
+    _cmpChangeText('Delivery issues',sc1.del,sc2.del,fmtCount),
+    _cmpChangeText('Total cases closed',sc1.closed,sc2.closed,fmtCount),
+    _cmpChangeText('Pending cases',sc1.pending,sc2.pending,fmtCount),
+  ].join(' ');
+  const ppObs=[
+    _cmpChangeText('New claims',pp1.newClaim,pp2.newClaim,fmtCount),
+    _cmpChangeText('Escalations',pp1.esc,pp2.esc,fmtCount),
+    _cmpChangeText('Claims lost',pp1.claimLost,pp2.claimLost,fmtCount),
+    _cmpChangeText('Inquiries won',pp1.inqWin,pp2.inqWin,fmtCount),
+    _cmpChangeText('Total new cases',pp1.totNew,pp2.totNew,fmtCount),
+  ].join(' ');
+
+  const divider=`<div style="height:1px;background:#e2e8f0;margin:1.25rem 0"></div>`;
+
+  return `
+  <div style="background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.1);overflow:hidden;margin-bottom:1.25rem">
+    <div style="background:#1e293b;color:#fff;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+      <div>
+        <div style="font-size:1.25rem;font-weight:700;margin-bottom:.125rem">AMS E-Commerce</div>
+        <div style="font-size:.875rem;opacity:.9">${reportType}</div>
+      </div>
+      <div style="background:rgba(255,255,255,.15);padding:.375rem .75rem;border-radius:4px;font-size:.875rem;font-weight:600">${p1LabelShort} vs ${p2LabelShort}</div>
+    </div>
+    <div style="padding:1rem 1.5rem">
+      <div style="display:flex;gap:1.5rem;padding:.75rem 1rem;background:#f8fafc;border-radius:4px;margin-bottom:1rem;font-size:.875rem;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:.375rem"><span style="font-size:1rem;font-weight:700;color:#dc2626">↑</span><span>Increased from previous ${periodWord.toLowerCase()}</span></div>
+        <div style="display:flex;align-items:center;gap:.375rem"><span style="font-size:1rem;font-weight:700;color:#10b981">↓</span><span>Decreased from previous ${periodWord.toLowerCase()}</span></div>
+        <div style="display:flex;align-items:center;gap:.375rem"><span>—</span><span>No change</span></div>
+      </div>
+      ${_cmpSection('Customer Service',csRows,p1Label,p2Label)}
+      ${divider}
+      ${_cmpSection('Supply Chain Management - Veronica',scRows,p1Label,p2Label)}
+      ${divider}
+      ${_cmpSection('PayPal Dispute Management - Maria',ppRows,p1Label,p2Label)}
+      ${divider}
+      <div style="margin-bottom:.25rem">
+        <div style="font-size:1rem;font-weight:700;color:#1e293b;margin-bottom:.625rem">Key Observations</div>
+        ${_cmpHighlight('Customer Service',csObs)}
+        ${_cmpHighlight('Supply Chain Management',scObs)}
+        ${_cmpHighlight('PayPal Dispute Management',ppObs)}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWeeklyComparison(w1,w2){
+  return renderComparisonReport({
+    reportType:'WEEKLY COMPARISON REPORT',
+    periodWord:'Week',
+    p1Label:`Week 1 (${w1.label})`,
+    p2Label:`Week 2 (${w2.label})`,
+    p1LabelShort:w1.label,
+    p2LabelShort:w2.label,
+    dates1:w1.dates.slice().sort(sortDK),
+    dates2:w2.dates.slice().sort(sortDK),
+  });
 }
 
 // ── Monthly Insights (added 2026-07-09) ──────────────────────────────────
@@ -3992,29 +4130,16 @@ function renderDailyComparison(dk1,dk2){
 }
 
 function renderMonthlyComparison(m1,m2){
-  const pp1=aggPP(m1.dates),pp2=aggPP(m2.dates);
-  const sc1=aggSC(m1.dates),sc2=aggSC(m2.dates);
-  const delta=(a,b,higher='good')=>{const d=a-b;if(!isFinite(d)||d===0)return'';const good=(higher==='good'&&d>0)||(higher==='bad'&&d<0);return`<span style="color:${good?'var(--win)':'var(--los)'};font-size:.65rem;font-weight:700;margin-left:.3rem">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;};
-  const tdC=(v1,v2,cls='',higher='good')=>`<td class="nc ${cls}">${v1||'–'}</td><td class="nc ${cls}">${v2||'–'}</td><td class="nc" style="font-size:.75rem">${delta(+v1||0,+v2||0,higher)}</td>`;
-  const rowH=`<tr><th style="min-width:190px">Metric</th><th class="dh">${m1.label}</th><th class="dh">${m2.label}</th><th class="dh">Δ</th></tr>`;
-  return `
-    <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;padding:.75rem 1rem;margin-bottom:1rem">
-      ⇌ <strong style="color:#4c1d95">${m1.label}</strong> vs <strong style="color:#4c1d95">${m2.label}</strong>
-    </div>
-    <div class="section"><div class="sh pp-s"><div class="sh-icon pp-s">⚖️</div><div class="sh-ttl">PayPal Disputes — Month vs Month</div></div>
-    <div class="tbl-wrap"><table class="ctbl"><thead>${rowH}</thead><tbody>
-      <tr><td class="mn">Total New</td>${tdC(pp1.totNew,pp2.totNew,'','bad')}</tr>
-      <tr><td class="mn">Total Closed</td>${tdC(pp1.totClosed,pp2.totClosed)}</tr>
-      <tr><td class="mn">Won</td>${tdC(pp1.inqWin+pp1.claimWin,pp2.inqWin+pp2.claimWin,'win')}</tr>
-      <tr><td class="mn">Lost</td>${tdC(pp1.inqLost+pp1.claimLost,pp2.inqLost+pp2.claimLost,'loss','bad')}</tr>
-      <tr><td class="mn">Win Rate</td>${tdC(pp1.winRate+'%',pp2.winRate+'%','win')}</tr>
-    </tbody></table></div></div>
-    <div class="section"><div class="sh sc-s"><div class="sh-icon sc-s">📦</div><div class="sh-ttl">Supply Chain — Month vs Month</div></div>
-    <div class="tbl-wrap"><table class="ctbl"><thead>${rowH}</thead><tbody>
-      <tr><td class="mn">Total New</td>${tdC(sc1.totNew,sc2.totNew,'','bad')}</tr>
-      <tr><td class="mn">Closed</td>${tdC(sc1.closed,sc2.closed,'win')}</tr>
-      <tr><td class="mn">Pending</td>${tdC(sc1.pending,sc2.pending,'','bad')}</tr>
-    </tbody></table></div></div>`;
+  return renderComparisonReport({
+    reportType:'MONTHLY COMPARISON REPORT',
+    periodWord:'Month',
+    p1Label:m1.label,
+    p2Label:m2.label,
+    p1LabelShort:m1.label,
+    p2LabelShort:m2.label,
+    dates1:m1.dates.slice().sort(sortDK),
+    dates2:m2.dates.slice().sort(sortDK),
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
